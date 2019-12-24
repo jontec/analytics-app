@@ -1,0 +1,254 @@
+h1. Google Analytics App
+
+h2. About
+
+This app is designed to showcase a few variations on how to implement Google Tag Manager for Google Analytics in an Angular app, in this case powered by Ruby on Rails.
+
+h2. Dependencies
+
+h3. v1
+* Google Tag Manager
+* Google Analytics
+* Ruby on Rails
+* Angular v6
+* Heroku (for deployment)
+* PostgreSQL (for local development)
+
+h3. v2
+
+* Google Firebase (linked to Google Analytics)
+
+h2. How it was made
+
+This app was created using Ruby v2.6.5 and Rails v6.0.2
+
+h3. Create the Rails App
+
+h4. Initialization
+
+First, we'll create the Rails app with a few settings optimized for easy deployment to Heroku (PostgreSQL) and with settings to set us up to work with Angular out-of-the-box (Webpack):
+
+bc. rails new analytics --database=postgresql --webpack=angular
+
+I had just updated my OS X box to Catalina, so I had to get Homebrew to relink some commands for yarn. The clue came in the form of this message at the bottom of the command's output:
+
+bc. * bin/rails: Spring inserted
+       rails  webpacker:install
+Yarn not installed. Please download and install Yarn from https://yarnpkg.com/lang/en/docs/install/
+
+I then re-ran the @bundle:install@ portion, adding the @angular@ option to get the library-specific goodness (this would have been done by default if yarn had been configured correctly from the get go):
+
+bc. cd analytics && rails webpacker:install:angular
+
+h4. What You Get for Free
+
+Now you can find a few items located in the @app/javascript@ directory:
+* hello_angular/
+** app/
+*** app.component.ts
+* packs/
+** hello_angular.js
+
+Rails has set up a default Angular component for us here in @app.component.ts@ with a selector defined as @hello-angular@:
+
+bc. @Component({
+  selector: 'hello-angular',
+  template: `<h1>Hello {{name}}</h1>`
+})
+
+Inside @hello_angular.js@ we find our first clue on how to get our Angular code working inside of a rails view:
+
+bc. // Run this Angular example by adding the following HTML markup to your view:
+//
+// <hello-angular>Loading...</hello-angular>
+//
+// <%= javascript_pack_tag 'hello_angular' %>
+
+h4. Get ready for showtime
+
+We'll now use that clue about how to style our view to create our first web-accessible route. We'll create a new singleton controller that's connected to a single view:
+
+bc. rails g controller hello_angular index
+
+Which, of course, creates a route to @/hello_angular@ from our app route and links it up to @app/views/hello_angular/index.html.erb@, which we can then edit to include the text from the hint above:
+
+bc. <hello-angular>Loading...</hello-angular>
+<%= javascript_pack_tag 'hello_angular' %>
+
+Now let's check out the magic by starting the server:
+
+bc. rails server
+
+And heading over to "http://localhost:3000/hello_angular/index":http://localhost:3000/hello_angular/index
+
+h4. Cleanup to enforce MVC
+
+If you're like me and chose Rails for MVC, you'll probably have a predisposition to want the HTML that currently lives in the @template@ property of the @Component@ components in @app.components.ts@ to be pulled out. That can be accomplished site-wide in a few steps which are purely in the webpack world:
+
+Note: These steps have been copied from the helpful details in the "TypeScript README for Webpacker":https://github.com/rails/webpacker/blob/master/docs/typescript.md#html-templates-with-typescript-and-angular
+
+First, let's add the @html-loader@ pakcage as a dependency:
+
+bc. yarn add html-loader
+
+Then, we'll edit the @environment.js@ for Webpack to include a special handler for HTML files in each webpack app directory, @config/webpack/environment.js@:
+
+bc. environment.loaders.append('html', {
+  test: /\.html$/,
+  use: [{
+    loader: 'html-loader',
+    options: {
+      minimize: true,
+      removeAttributeQuotes: false,
+      caseSensitive: true,
+      customAttrSurround: [ [/#/, /(?:)/], [/\*/, /(?:)/], [/\[?\(?/, /(?:)/] ],
+      customAttrAssign: [ /\)?\]?=/ ]
+    }
+  }]
+})
+
+And add HTML as an extension in the Webpacker (Rails) config, @config/webpacker.yml@:
+
+bc. extensions:
+    - .elm
+    - .coffee
+    - .html
+
+And in our app, we'll declare how HTML files are to be handled when processed, by adding @html.d.ts@ to the app root at @app/javascript/hello_angular@:
+
+bc. declare module "*.html" {
+  const content: string
+  export default content
+}
+
+Now, we'll move the markup to a new file in the @hello_angular/app@ directory, @component.html@:
+
+bc. <h1>Hello {{name}}</h1>
+
+And update the component to incorporate it by reference with a new variable @componentHTML@ in @app/javascript/hello_angular/app/app.component.ts@:
+
+bc.. import { Component } from '@angular/core'
+import componentHTML from './component.html'
+
+@Component({
+  selector: 'hello-angular',
+  template: componentHTML
+})
+
+export class AppComponent {
+  name = 'Angular!'
+}
+
+h3. Installing Google Tag Manager
+
+h4. Obtain Tag Manager Configuration
+
+I set up a brand new Google Tag Manager account with a single container for my demonstration app. Inside that container, I also configured two additional custom environments for use in my test and development environments, for a total of four, with "Live" (I used this one for production) and "Latest" (unused) created automatically. As a result, I have three separate sets of parameters that I will need to pass into my app.
+
+To identify these parameters, examine the snippets provided for each environment, most clearly in the @<noscript>@ block used in the @<body>@, and you'll see parameters for (1) @id@ = GTM property ID, (2) @gtm_auth@ = proprietary authentication token, and (3) @gtm_preview@ = environment ID.
+
+Example (obfuscated):
+
+bc. ... ?id=GTM-XXXXXXX&gtm_auth=specialauthsecrethere&gtm_preview=env-X ...
+
+We'll keep these values and use a new Rails 6 feature, Multi-Environment credentials, to store the values. This feature expands functionality from 5.2 that allowed for storing and sharing encrypted app secrets to support environment-specific values for these secrets.
+
+We have to use a rails script to capture our input and then encrypt it. We'll need to do this once for each environment, for example:
+
+bc. EDITOR="mate --wait" bin/rails credentials:edit --production
+
+This first sets the editor that you'd like to use when Rails executes your command to edit the credentials for the Production envrionment in this case. I use TextMate as my editor, but you could use @vi@ or @nano@ just as easily--the @--wait@ option ensures that editor doesn't immediately close.
+
+Inside the editor, I used the following configuration, which I also saved (obfuscated) into @config/credentials/credentials.yml.example@ in cleartext for posterity:
+
+bc. google_tag_manager:
+  environment_id: env-n
+  id: GTM-XXXXXXX
+  auth: authtexthere
+
+h4. Add configuration to the views
+
+My strategy for setting up Google Tag Manager and forgetting about it from a configuration standpoint was to create two partials, one for the @<head>@ snippet, and one for the @<body>@ snippet. These would be referenced from my @application.html.erb@ across the site, and a helper @#gtm_variables@ would read the config from the encrypted credential store at runtime. Here's how that looks:
+
+I configured the helper method to read the value from the credential store in @helpers/application_helper.rb@:
+
+bc. def gtm_variables
+  # see config/credentials/credentials.yml.example
+  Rails.application.credentials.google_tag_manager
+end
+
+Then, I set up my @application.html.erb@ layout to reference two partials, one for the @<head>@, and one for the @<body>@ with a variable @gtm@ passing the GTM values obtained from the @gtm_variables@ helper. Here's a snippet of @application.html.erb@:
+
+bc.. <!DOCTYPE html>
+<html>
+  <head>
+    ...
+    <%= render "gtm_header", gtm: gtm_variables %>
+  </head>
+
+  <body>
+    <%= render "gtm_body", gtm: gtm_variables %>
+    <%= yield %>
+  </body>
+</html>
+
+p. Finally, I used the properties passed into the partials to populate the dynamic values of each snippet. I created both partials in a brand new @app/views/application@ directory.
+
+Please NOTE: the dash in @-%>@ is an ancient ERB incantation that prevents additional whitespace in the output! It's a small detail that will save you a good deal of head-scratching.
+
+@_gtm_header.html.erb@:
+
+bc. <!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl+ '&gtm_auth=<%= gtm[:auth] -%>&gtm_preview=<%= gtm[:environment_id] -%>&gtm_cookies_win=x';f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','<%= gtm[:id] -%>');</script>
+<!-- End Google Tag Manager -->
+
+@_gtm_body.html.erb@:
+
+bc. <!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=<%= gtm[:id] -%>&gtm_auth=<%= gtm[:auth] -%>&gtm_preview=<%= gtm[:environment_id] -%>&gtm_cookies_win=x"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+h4. It's showtime!
+
+If it all worked correctly, you should now be able to return to Google Tag Manager, and turn on Debugging. When you reload your page (yes, even on localhost!), you should see a debug window that tracks the underlying page events that could be used as triggers. This is one of the easiest ways to validate the installation.
+
+h3. Configuring Google Tag Manager
+
+The beautiful thing about Google Tag Manager is that now, most of the heavy code-lifting is mostly done. With just the above code changes, we've enabled functionality that will meet most business needs for a while, as long as Google Tag Manager is configured properly.
+
+Here are a few things that I learned:
+* There should be one Google Analytics property configured for each environment, for a total of three
+** In other words, one single Tag Manager account with a single container and three environments. Then, a single Google Analytics account with three properties, one for each environment. Inside each of these accounts, there will be exactly one stream (web) to start (see note below)
+* You'll set up a few core triggers (page views, form submissions, and clicks) first
+* These triggers will fire "tags" which can be configured to send events to Google Analytics. This should be configured next.
+** Configure the page view tag first, and configure it as a "Google Analytics: App + Web Configuration" Tag Type. Configure it to fire a page view event and link it to the default page view event "Page View"
+** Set up the "Form Submission" and "Link Click"-triggered tags next, and select that Google Analytics configuration (this means that you only configure the config once!)
+* Linking environments is based on the Environment name, which is user editable!!!
+** Because of this, their names should not be permitted to change or data could potentially be lost
+** How to configure: Create a "Lookup Table" user-defined variable in Tag Manager that maps the Environment Name to the Measurement ID of the stream.
+* Try it out by 
+
+Note: The brand new App + Web property type is configured slightly differently than the app-only or web-only "Universal Analytics" properties. They use a Measurement ID per stream (and a property can contain multiple streams) rather than a Property ID 
+
+h2. Resources Used
+
+* Google Tag Manager
+** "Google Tag Manager vs. Google Analytics":https://www.analyticsmania.com/post/google-tag-manager-vs-google-analytics/
+** "Under the Hood: Guidance for Angular with Google Tag Manager":https://medium.com/quick-code/set-up-analytics-on-an-angular-app-via-google-tag-manager-5c5b31e6f41
+** "How to use lookup tables to map GTag Environments to separate GA Instances":https://www.napkyn.com/2017/07/12/ga-gtm-environments/
+* Rails Credentials Store
+** "A tip to use the credentials store for GTM":https://michaelsoolee.com/google-analytics-rails-5/
+** "Multi-environment credentials in Rails 6":https://blog.bigbinary.com/2019/07/03/rails-6-adds-support-for-multi-environment-credentials.html
+** "Pro-tip on editor syntax for credentials:edit (Rails 5.2)":https://www.viget.com/articles/storing-secret-credentials-in-rails-5-2-and-up/
+* Rails, Angular, and Webpack(er)
+** "Webpacker README":https://github.com/rails/webpacker
+** "Webpacker Details on README":https://github.com/rails/webpacker/blob/master/docs/typescript.md#html-templates-with-typescript-and-angular
+** "Background reading on Webpacker from the 3.0 Release":https://weblog.rubyonrails.org/2017/8/30/webpacker-3-0/
+* How it used to be (a.k.a. a shoutout to how hard it used to be)
+** "To Deploy":https://www.codewithjason.com/deploy-rails-application-angular-cli-webpack-front-end/
+** "To Develop":https://www.codewithjason.com/getting-started-with-angular-and-rails/
