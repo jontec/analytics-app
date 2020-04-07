@@ -6,7 +6,7 @@ This app is designed to showcase a few variations on how to implement Google Tag
 
 I built most of this on a holiday weekend to better understand some of the challenges my team’s engineers might face and to validate some of our hypotheses about how the tools might fit together.
 
-This README reads like a how-to guide from bottom up, so skip to "Installing Google Tag Manager >>" for details on a recommended reference implementation for Google Tag Manager & Analytics.
+This README reads like a how-to guide from bottom up, so skip to "Installing Google Tag Manager >>"#installing-google-tag-manager for details on a recommended reference implementation for Google Tag Manager & Analytics.
 
 
 h2. Dependencies
